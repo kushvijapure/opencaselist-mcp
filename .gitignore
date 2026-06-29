@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Secrets / session state
+.env
+wiki_session.json
+session_state.json
+
+# Local user data (SQLite index and downloaded files)
+*.db
+downloads/
+packets/
+
+# macOS
+.DS_Store

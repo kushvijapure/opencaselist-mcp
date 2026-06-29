@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "opencaselist": {
+      "command": "/Users/kush/opencaselist-mcp/.venv/bin/python3.12",
+      "args": ["/Users/kush/opencaselist-mcp/server.py"],
+      "env": {
+        "OPENCASELIST_BASE_URL": "https://opencaselist.com",
+        "OPENCASELIST_USERNAME": "",
+        "OPENCASELIST_PASSWORD": ""
+      }
+    }
+  }
+}
