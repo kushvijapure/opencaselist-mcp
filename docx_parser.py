@@ -1,5 +1,4 @@
-"""
-Parse Verbatim-style and generic debate .docx files into structured DebateCard objects.
+"""Parse Verbatim-style and generic debate .docx files into structured DebateCard objects.
 
 Verbatim (and CardMirror) documents use named paragraph styles:
   Pocket > Hat > Block > Tag / Cite / CardText / Analytics
