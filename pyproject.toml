@@ -3,6 +3,7 @@ name = "opencaselist-mcp"
 version = "0.1.0"
 description = "MCP server for OpenCaselist — debate evidence and card search assistant"
 readme = "README.md"
+keywords = ["mcp", "debate", "opencaselist", "claude", "evidence"]
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.0.0",
