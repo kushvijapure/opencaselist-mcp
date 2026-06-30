@@ -41,11 +41,15 @@ Handles both **Verbatim-styled** documents (Pocket/Hat/Block/Tag/Cite styles) an
 git clone https://github.com/YOUR_USERNAME/opencaselist-mcp
 cd opencaselist-mcp
 
-# with uv
+# with uv (recommended)
 uv sync
 
-# or with pip
-python3.12 -m venv .venv && source .venv/bin/activate
+# or with pip — activate first, then install
+python3.12 -m venv .venv
+# macOS/Linux:
+source .venv/bin/activate
+# Windows:
+# .venv\Scripts\activate.bat
 pip install -r requirements.txt
 ```
 
@@ -129,22 +133,27 @@ All data is stored in `~/.opencaselist-mcp/`:
 ## Development
 
 ```bash
-# Install (uv)
-uv sync
+# Install dev dependencies (uv)
+uv sync --dev
 
-# Install (pip)
-python3.12 -m venv .venv && source .venv/bin/activate
+# Install dev dependencies (pip — activate venv first)
 pip install -r requirements-dev.txt
 
 # Run server directly (uv)
 uv run server.py
 
-# Run server directly (pip / venv)
-.venv/bin/python server.py
+# Run server directly (venv)
+.venv/bin/python server.py          # macOS/Linux
+# .venv\Scripts\python server.py   # Windows
 
-# Run tests
-pytest --tb=short -q --cov=. --cov-report=term-missing
+# Run tests (uv)
+uv run pytest --tb=short -q
+
+# Run tests (venv)
+.venv/bin/pytest --tb=short -q --cov=. --cov-report=term-missing
 ```
+
+CI runs on Python 3.12 and 3.13 via GitHub Actions (`.github/workflows/test.yml`).
 
 ---
 
