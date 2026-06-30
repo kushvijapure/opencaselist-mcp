@@ -1,5 +1,4 @@
-"""
-OpenCaselist MediaWiki API client.
+"""OpenCaselist MediaWiki API client.
 
 OpenCaselist runs on MediaWiki. This client uses the standard MediaWiki
 Action API (api.php) for search, page fetching, and file listing.
