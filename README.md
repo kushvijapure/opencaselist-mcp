@@ -1,5 +1,12 @@
 # OpenCaselist MCP
 
+<p align="left">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="License"></a>
+  <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-purple" alt="MCP"></a>
+</p>
+
+
 A [Model Context Protocol](https://modelcontextprotocol.io) server that turns Claude into a debate evidence librarian for [OpenCaselist](https://opencaselist.com).
 
 Ask questions like:
