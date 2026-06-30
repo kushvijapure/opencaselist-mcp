@@ -1,12 +1,14 @@
+import asyncio
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
 import pytest
 import respx
 import httpx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from wiki_client import OpenCaselistClient
+from wiki_client import OpenCaselistClient, _RateLimiter
 
 BASE = "https://opencaselist.com"
 
@@ -118,6 +120,7 @@ class TestSearch:
 class TestDownload:
     async def test_download_success(self, credentialed_client, tmp_path):
         with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/robots.txt").mock(return_value=httpx.Response(200, text="User-agent: *\nAllow: /\n"))
             mock.get(f"{BASE}/files/test.docx").mock(
                 return_value=httpx.Response(200, content=b"PK\x03\x04fake_docx_content")
             )
@@ -129,6 +132,7 @@ class TestDownload:
 
     async def test_download_creates_parent_dirs(self, credentialed_client, tmp_path):
         with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/robots.txt").mock(return_value=httpx.Response(200, text="User-agent: *\nAllow: /\n"))
             mock.get(f"{BASE}/files/test.docx").mock(
                 return_value=httpx.Response(200, content=b"content")
             )
@@ -160,6 +164,7 @@ class TestDownload:
         monkeypatch.setattr(credentialed_client, "login", mock_login)
 
         with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/robots.txt").mock(return_value=httpx.Response(200, text="User-agent: *\nAllow: /\n"))
             mock.get(f"{BASE}/files/test.docx").mock(side_effect=download_side_effect)
             dest = tmp_path / "test.docx"
             result = await credentialed_client.download_file(f"{BASE}/files/test.docx", dest)
@@ -170,6 +175,7 @@ class TestDownload:
 
     async def test_download_network_error(self, credentialed_client, tmp_path):
         with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/robots.txt").mock(return_value=httpx.Response(200, text="User-agent: *\nAllow: /\n"))
             mock.get(f"{BASE}/files/test.docx").mock(side_effect=Exception("Network error"))
             result = await credentialed_client.download_file(
                 f"{BASE}/files/test.docx", tmp_path / "test.docx"
@@ -264,3 +270,131 @@ class TestHTTPSEnforcement:
         monkeypatch.setenv("OPENCASELIST_PASSWORD", "")
         c = OpenCaselistClient()   # must not raise
         assert c._base_url == "https://opencaselist.com"
+
+
+class TestRetry:
+    async def test_500_is_retried(self, client):
+        call_count = {"n": 0}
+
+        def flaky(request):
+            call_count["n"] += 1
+            if call_count["n"] < 3:
+                return httpx.Response(500)
+            return httpx.Response(200, json={"query": {"search": []}})
+
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/api.php").mock(side_effect=flaky)
+            results = await client.search("anything")
+        assert call_count["n"] == 3
+        assert results == []
+
+    async def test_retries_exhausted_raises(self, client):
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/api.php").mock(return_value=httpx.Response(500))
+            results = await client.search("anything")
+        assert results[0].page_type == "error"
+
+    async def test_connect_error_is_retried(self, client):
+        call_count = {"n": 0}
+
+        def flaky(request):
+            call_count["n"] += 1
+            if call_count["n"] < 2:
+                raise httpx.ConnectError("connection refused")
+            return httpx.Response(200, json={"query": {"search": []}})
+
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/api.php").mock(side_effect=flaky)
+            results = await client.search("anything")
+        assert call_count["n"] == 2
+        assert results == []
+
+    async def test_429_triggers_backoff(self, client):
+        call_count = {"n": 0}
+
+        def rate_limited(request):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return httpx.Response(429)
+            return httpx.Response(200, json={"query": {"search": []}})
+
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/api.php").mock(side_effect=rate_limited)
+            results = await client.search("anything")
+        assert call_count["n"] == 2
+        assert results == []
+
+
+class TestRateLimiter:
+    async def test_enforces_min_interval(self):
+        limiter = _RateLimiter(min_interval=0.1)
+        await limiter.acquire()
+        start = asyncio.get_event_loop().time()
+        await limiter.acquire()
+        elapsed = asyncio.get_event_loop().time() - start
+        assert elapsed >= 0.08  # allow small timer jitter
+
+    async def test_no_delay_after_interval_passes(self):
+        limiter = _RateLimiter(min_interval=0.05)
+        await limiter.acquire()
+        await asyncio.sleep(0.1)  # wait longer than min_interval
+        start = asyncio.get_event_loop().time()
+        await limiter.acquire()
+        elapsed = asyncio.get_event_loop().time() - start
+        assert elapsed < 0.05  # should not have slept
+
+
+class TestRobotsTxt:
+    async def test_disallowed_path_blocks_download(self, credentialed_client, tmp_path):
+        robots = "User-agent: *\nDisallow: /files/\n"
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/robots.txt").mock(return_value=httpx.Response(200, text=robots))
+            result = await credentialed_client.download_file(
+                f"{BASE}/files/secret.docx", tmp_path / "out.docx"
+            )
+        assert result["success"] is False
+        assert "robots" in result["error"].lower()
+
+    async def test_allowed_path_proceeds(self, credentialed_client, tmp_path):
+        robots = "User-agent: *\nAllow: /\n"
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/robots.txt").mock(return_value=httpx.Response(200, text=robots))
+            mock.get(f"{BASE}/files/ok.docx").mock(
+                return_value=httpx.Response(200, content=b"content")
+            )
+            result = await credentialed_client.download_file(
+                f"{BASE}/files/ok.docx", tmp_path / "ok.docx"
+            )
+        assert result["success"] is True
+
+    async def test_robots_fetch_failure_allows_all(self, credentialed_client, tmp_path):
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/robots.txt").mock(side_effect=Exception("timeout"))
+            mock.get(f"{BASE}/files/ok.docx").mock(
+                return_value=httpx.Response(200, content=b"content")
+            )
+            result = await credentialed_client.download_file(
+                f"{BASE}/files/ok.docx", tmp_path / "ok.docx"
+            )
+        assert result["success"] is True
+
+    async def test_disallowed_subpath(self, credentialed_client, tmp_path):
+        robots = "User-agent: OpenCaselistMCP\nDisallow: /private/\n"
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/robots.txt").mock(return_value=httpx.Response(200, text=robots))
+            result = await credentialed_client.download_file(
+                f"{BASE}/private/file.docx", tmp_path / "out.docx"
+            )
+        assert result["success"] is False
+
+    async def test_unlisted_path_is_allowed(self, credentialed_client, tmp_path):
+        robots = "User-agent: *\nDisallow: /blocked/\n"
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/robots.txt").mock(return_value=httpx.Response(200, text=robots))
+            mock.get(f"{BASE}/files/allowed.docx").mock(
+                return_value=httpx.Response(200, content=b"content")
+            )
+            result = await credentialed_client.download_file(
+                f"{BASE}/files/allowed.docx", tmp_path / "allowed.docx"
+            )
+        assert result["success"] is True

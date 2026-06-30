@@ -10,9 +10,11 @@ Authentication uses the MediaWiki cookie-based login flow:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
+import urllib.robotparser
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse, quote
@@ -30,6 +32,9 @@ _PAGE_TYPE_PATTERNS = {
     "tournament": re.compile(r"/wiki/Tournaments?"),
     "round": re.compile(r"/wiki/[\w\-]+/[\w\-]+/[\w\-]+/rounds", re.IGNORECASE),
 }
+
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRIES = 3
 
 
 def _infer_page_type(url: str) -> str:
@@ -60,6 +65,20 @@ def _extract_side(text: str) -> Side:
     return Side.UNKNOWN
 
 
+class _RateLimiter:
+    def __init__(self, min_interval: float = 0.5):
+        self._min_interval = min_interval
+        self._last = 0.0
+
+    async def acquire(self) -> None:
+        loop = asyncio.get_event_loop()
+        now = loop.time()
+        gap = now - self._last
+        if gap < self._min_interval:
+            await asyncio.sleep(self._min_interval - gap)
+        self._last = asyncio.get_event_loop().time()
+
+
 class OpenCaselistClient:
     """
     Async HTTP client for the OpenCaselist MediaWiki API.
@@ -83,6 +102,8 @@ class OpenCaselistClient:
         self._username = os.environ.get("OPENCASELIST_USERNAME", "")
         self._password = os.environ.get("OPENCASELIST_PASSWORD", "")
         self._client: Optional[httpx.AsyncClient] = None
+        self._rate_limiter = _RateLimiter()
+        self._robots_parser: Optional[urllib.robotparser.RobotFileParser] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -95,7 +116,7 @@ class OpenCaselistClient:
                 headers={
                     "User-Agent": (
                         "OpenCaselistMCP/1.0 (debate evidence assistant; "
-                        "respects robots.txt; contact via GitHub)"
+                        "contact via GitHub)"
                     ),
                 },
             )
@@ -164,12 +185,49 @@ class OpenCaselistClient:
     async def _api_get(self, params: dict) -> Any:
         client = await self._get_client()
         params.setdefault("format", "json")
-        r = await client.get(self._api_url, params=params)
-        if r.status_code == 401:
-            await self.login()
-            r = await client.get(self._api_url, params=params)
-        r.raise_for_status()
-        return r.json()
+        last_exc: Optional[Exception] = None
+        for attempt in range(_MAX_RETRIES):
+            await self._rate_limiter.acquire()
+            try:
+                r = await client.get(self._api_url, params=params)
+                if r.status_code == 401:
+                    await self.login()
+                    r = await client.get(self._api_url, params=params)
+                if r.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES - 1:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                r.raise_for_status()
+                return r.json()
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                last_exc = e
+                if attempt < _MAX_RETRIES - 1:
+                    await asyncio.sleep(2 ** attempt)
+                continue
+        raise last_exc or RuntimeError("Max retries exceeded")
+
+    # ------------------------------------------------------------------
+    # robots.txt
+    # ------------------------------------------------------------------
+
+    async def _is_allowed(self, url: str) -> bool:
+        """Check robots.txt. Returns True if the URL is allowed (or robots.txt is unreachable)."""
+        if self._robots_parser is None:
+            robots_url = f"{self._base_url}/robots.txt"
+            parser = urllib.robotparser.RobotFileParser()
+            parser.set_url(robots_url)
+            try:
+                client = await self._get_client()
+                r = await client.get(robots_url)
+                if r.status_code == 200:
+                    parser.parse(r.text.splitlines())
+                else:
+                    # Unreachable robots.txt → allow all
+                    return True
+            except Exception:
+                return True
+            self._robots_parser = parser
+        ua = "OpenCaselistMCP"
+        return self._robots_parser.can_fetch(ua, url)
 
     # ------------------------------------------------------------------
     # Wiki search
@@ -421,7 +479,8 @@ class OpenCaselistClient:
 
         Only call this when the user has explicitly requested the file.
         Requires OPENCASELIST_USERNAME and OPENCASELIST_PASSWORD to be set.
-        Re-authenticates once automatically if the server returns 401.
+        Checks robots.txt before downloading. Re-authenticates once automatically
+        if the server returns 401.
         """
         if not self._username or not self._password:
             return {
@@ -432,6 +491,15 @@ class OpenCaselistClient:
                 ),
                 "url": url,
             }
+
+        if not await self._is_allowed(url):
+            return {
+                "success": False,
+                "error": f"robots.txt disallows fetching {url}",
+                "url": url,
+            }
+
+        await self._rate_limiter.acquire()
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         client = await self._get_client()
         try:

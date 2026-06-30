@@ -119,6 +119,8 @@ All data is stored in `~/.opencaselist-mcp/`:
 ## Ethics & constraints
 
 - **No mass crawling.** Only fetches pages and files the user explicitly asks for.
+- **Respects robots.txt.** File downloads are checked against `robots.txt` before proceeding; disallowed URLs are rejected with a clear error.
+- **Rate limited.** A minimum 0.5-second delay is enforced between outgoing requests.
 - **Login required** for file downloads — credentials are sent only to `opencaselist.com` over HTTPS. The server makes no third-party network calls and never logs credentials. See [`docs/AUTH.md`](docs/AUTH.md) for the full auth flow.
 - If a file can't be downloaded automatically, the server returns the wiki URL for manual access.
 

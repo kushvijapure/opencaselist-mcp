@@ -434,7 +434,9 @@ async def _tool_search_wiki(args: dict) -> Any:
 
 
 async def _tool_round_metadata(args: dict) -> Any:
-    url_or_title = args["url_or_title"]
+    url_or_title = args.get("url_or_title", "").strip()
+    if not url_or_title:
+        return {"error": "url_or_title is required and must not be empty."}
     meta = await _wiki.get_round_metadata(url_or_title)
     return {
         "title": meta.title,
@@ -453,7 +455,9 @@ async def _tool_round_metadata(args: dict) -> Any:
 
 
 async def _tool_team_files(args: dict) -> Any:
-    url_or_title = args["url_or_title"]
+    url_or_title = args.get("url_or_title", "").strip()
+    if not url_or_title:
+        return {"error": "url_or_title is required and must not be empty."}
     filters = args.get("filters", {})
     result = await _wiki.get_team_files(url_or_title, filters=filters)
     return {
@@ -473,6 +477,15 @@ async def _tool_team_files(args: dict) -> Any:
 
 async def _tool_download_docx(args: dict) -> Any:
     file_url = args["file_url"]
+    if not file_url.startswith("https://"):
+        return {
+            "success": False,
+            "error": (
+                f"file_url must use HTTPS (got {file_url!r}). "
+                "Credentials are never sent over plain HTTP."
+            ),
+            "url": file_url,
+        }
     file_name = args.get("file_name") or file_url.split("/")[-1].split("?")[0]
     metadata = args.get("metadata", {})
 
