@@ -7,11 +7,11 @@
 </p>
 
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that turns Claude into a debate evidence librarian for [OpenCaselist](https://opencaselist.com).
+A [Model Context Protocol](https://modelcontextprotocol.io) server that turns Claude into a librarian for [OpenCaselist](https://opencaselist.com).
 
 Ask questions like:
-- *"Find me cards about nuclear deterrence causing escalation"*
-- *"What files has Harvard KP disclosed this year?"*
+- *"Find me cards about deterrence causing escalation"*
+- *"What files has [Team] XY disclosed this year?"*
 - *"Find rounds where teams read a cap K link against AI affs"*
 - *"Search my neg files for warming good cards"*
 - *"Build me a packet of the best deterrence cards from my index"*
