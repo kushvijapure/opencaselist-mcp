@@ -1,5 +1,4 @@
-"""
-Build a .docx card packet from selected DebateCard objects.
+"""Build a .docx card packet from selected DebateCard objects.
 
 Preserves Verbatim-compatible paragraph styles where possible so the
 output can be opened in Verbatim/CardMirror. Falls back to explicit
