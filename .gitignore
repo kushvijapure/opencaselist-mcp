@@ -19,3 +19,13 @@ packets/
 
 # macOS
 .DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Machine-specific config (use .example instead)
+claude_desktop_config.json
+
+# Personal Claude skills folder
+.claude/
