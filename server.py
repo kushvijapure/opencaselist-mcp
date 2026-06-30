@@ -1,5 +1,4 @@
-"""
-OpenCaselist MCP Server
+"""OpenCaselist MCP Server
 
 Exposes 8 tools for locating, parsing, and searching debate evidence on OpenCaselist.
 
