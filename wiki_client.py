@@ -74,6 +74,11 @@ class OpenCaselistClient:
         self._base_url = os.environ.get(
             "OPENCASELIST_BASE_URL", "https://opencaselist.com"
         ).rstrip("/")
+        if not self._base_url.startswith("https://"):
+            raise ValueError(
+                f"OPENCASELIST_BASE_URL must use HTTPS (got {self._base_url!r}). "
+                "Credentials are never sent over plain HTTP."
+            )
         self._api_url = f"{self._base_url}/api.php"
         self._username = os.environ.get("OPENCASELIST_USERNAME", "")
         self._password = os.environ.get("OPENCASELIST_PASSWORD", "")
@@ -160,6 +165,9 @@ class OpenCaselistClient:
         client = await self._get_client()
         params.setdefault("format", "json")
         r = await client.get(self._api_url, params=params)
+        if r.status_code == 401:
+            await self.login()
+            r = await client.get(self._api_url, params=params)
         r.raise_for_status()
         return r.json()
 
@@ -412,26 +420,53 @@ class OpenCaselistClient:
         Download a single file from `url` to `dest_path`.
 
         Only call this when the user has explicitly requested the file.
-        Respects authenticated sessions.
+        Requires OPENCASELIST_USERNAME and OPENCASELIST_PASSWORD to be set.
+        Re-authenticates once automatically if the server returns 401.
         """
+        if not self._username or not self._password:
+            return {
+                "success": False,
+                "error": (
+                    "Credentials required for file downloads. "
+                    "Set OPENCASELIST_USERNAME and OPENCASELIST_PASSWORD in .env."
+                ),
+                "url": url,
+            }
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         client = await self._get_client()
         try:
-            async with client.stream("GET", url) as r:
-                r.raise_for_status()
-                content_type = r.headers.get("content-type", "")
-                with open(dest_path, "wb") as f:
-                    async for chunk in r.aiter_bytes(chunk_size=65536):
-                        f.write(chunk)
-            size = dest_path.stat().st_size
-            return {
-                "success": True,
-                "path": str(dest_path),
-                "size_bytes": size,
-                "content_type": content_type,
-            }
+            result = await self._stream_download(client, url, dest_path)
+            if result.get("_reauth"):
+                login_result = await self.login()
+                if not login_result.get("success"):
+                    return {
+                        "success": False,
+                        "error": f"Session expired and re-login failed: {login_result.get('error', 'unknown')}",
+                        "url": url,
+                    }
+                result = await self._stream_download(client, url, dest_path)
+            return result
         except Exception as e:
             return {"success": False, "error": str(e), "url": url}
+
+    async def _stream_download(
+        self, client: httpx.AsyncClient, url: str, dest_path: Path
+    ) -> Dict[str, Any]:
+        async with client.stream("GET", url) as r:
+            if r.status_code == 401:
+                return {"_reauth": True}
+            r.raise_for_status()
+            content_type = r.headers.get("content-type", "")
+            with open(dest_path, "wb") as f:
+                async for chunk in r.aiter_bytes(chunk_size=65536):
+                    f.write(chunk)
+        size = dest_path.stat().st_size
+        return {
+            "success": True,
+            "path": str(dest_path),
+            "size_bytes": size,
+            "content_type": content_type,
+        }
 
     # ------------------------------------------------------------------
     # Helpers

@@ -35,12 +35,18 @@ Handles both **Verbatim-styled** documents (Pocket/Hat/Block/Tag/Cite styles) an
 
 ### 1. Install
 
-**Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).**
+**Requires Python 3.12+.** Use [uv](https://docs.astral.sh/uv/getting-started/installation/) (recommended) or plain pip.
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/opencaselist-mcp
 cd opencaselist-mcp
+
+# with uv
 uv sync
+
+# or with pip
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ### 2. Configure
@@ -54,14 +60,20 @@ cp .env.example .env
 
 ### 3. Add to Claude Desktop
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+Edit the Claude Desktop config file for your platform:
+
+| Platform | Config file path |
+|---|---|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux | `~/.config/claude/claude_desktop_config.json` |
 
 ```json
 {
   "mcpServers": {
     "opencaselist": {
-      "command": "uv",
-      "args": ["run", "/absolute/path/to/opencaselist-mcp/server.py"],
+      "command": "/absolute/path/to/opencaselist-mcp/.venv/bin/python",
+      "args": ["/absolute/path/to/opencaselist-mcp/server.py"],
       "env": {
         "OPENCASELIST_BASE_URL": "https://opencaselist.com",
         "OPENCASELIST_USERNAME": "your_username",
@@ -71,6 +83,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
   }
 }
 ```
+
+> **uv users:** replace `command` with `"uv"` and set `"args"` to `["run", "/absolute/path/to/opencaselist-mcp/server.py"]`.
 
 Restart Claude Desktop. The `opencaselist` tools will be available immediately.
 
@@ -93,17 +107,6 @@ If you clone this repo and open it in Claude Code, the `.mcp.json` at the root i
 | `build_card_packet` | Export selected cards as a `.docx` packet |
 | `open_result_location` | Get the wiki URL and source metadata for a card |
 
-## Skills (Claude Code only)
-
-| Skill | Invoke | Description |
-|-------|--------|-------------|
-| Search evidence | `/search-evidence` | Search indexed cards with filters |
-| Parse file | `/parse-file` | Index a local `.docx` file |
-| Find team | `/find-team` | Browse a team's OpenCaselist page |
-| Build packet | `/build-packet` | Compile cards into a `.docx` packet |
-
----
-
 ## Local storage
 
 All data is stored in `~/.opencaselist-mcp/`:
@@ -116,8 +119,7 @@ All data is stored in `~/.opencaselist-mcp/`:
 ## Ethics & constraints
 
 - **No mass crawling.** Only fetches pages and files the user explicitly asks for.
-- **Respects robots.txt** and OpenCaselist community norms.
-- **Login required** for file downloads — credentials never leave your machine.
+- **Login required** for file downloads — credentials are sent only to `opencaselist.com` over HTTPS. The server makes no third-party network calls and never logs credentials. See [`docs/AUTH.md`](docs/AUTH.md) for the full auth flow.
 - If a file can't be downloaded automatically, the server returns the wiki URL for manual access.
 
 ---
@@ -125,9 +127,21 @@ All data is stored in `~/.opencaselist-mcp/`:
 ## Development
 
 ```bash
+# Install (uv)
 uv sync
-uv run server.py          # test the server directly
-uv run python -c "from docx_parser import parse_debate_docx; ..."
+
+# Install (pip)
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+# Run server directly (uv)
+uv run server.py
+
+# Run server directly (pip / venv)
+.venv/bin/python server.py
+
+# Run tests
+pytest --tb=short -q --cov=. --cov-report=term-missing
 ```
 
 ---

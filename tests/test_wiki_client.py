@@ -21,6 +21,16 @@ def client(monkeypatch, tmp_path):
     return OpenCaselistClient()
 
 
+@pytest.fixture
+def credentialed_client(monkeypatch, tmp_path):
+    """Client with credentials configured — needed for download tests."""
+    monkeypatch.setenv("OPENCASELIST_BASE_URL", BASE)
+    monkeypatch.setenv("OPENCASELIST_USERNAME", "testuser")
+    monkeypatch.setenv("OPENCASELIST_PASSWORD", "testpass")
+    monkeypatch.setattr("wiki_client._SESSION_FILE", tmp_path / "session.json")
+    return OpenCaselistClient()
+
+
 class TestSearch:
     async def test_search_success(self, client):
         with respx.mock(assert_all_called=False) as mock:
@@ -106,38 +116,62 @@ class TestSearch:
 
 
 class TestDownload:
-    async def test_download_success(self, client, tmp_path):
+    async def test_download_success(self, credentialed_client, tmp_path):
         with respx.mock(assert_all_called=False) as mock:
             mock.get(f"{BASE}/files/test.docx").mock(
                 return_value=httpx.Response(200, content=b"PK\x03\x04fake_docx_content")
             )
             dest = tmp_path / "test.docx"
-            result = await client.download_file(f"{BASE}/files/test.docx", dest)
+            result = await credentialed_client.download_file(f"{BASE}/files/test.docx", dest)
         assert result["success"] is True
         assert dest.exists()
         assert result["size_bytes"] > 0
 
-    async def test_download_creates_parent_dirs(self, client, tmp_path):
+    async def test_download_creates_parent_dirs(self, credentialed_client, tmp_path):
         with respx.mock(assert_all_called=False) as mock:
             mock.get(f"{BASE}/files/test.docx").mock(
                 return_value=httpx.Response(200, content=b"content")
             )
             dest = tmp_path / "subdir" / "test.docx"
-            await client.download_file(f"{BASE}/files/test.docx", dest)
+            await credentialed_client.download_file(f"{BASE}/files/test.docx", dest)
         assert dest.exists()
 
-    async def test_download_auth_failure(self, client, tmp_path):
-        with respx.mock(assert_all_called=False) as mock:
-            mock.get(f"{BASE}/files/secret.docx").mock(return_value=httpx.Response(401))
-            result = await client.download_file(
-                f"{BASE}/files/secret.docx", tmp_path / "secret.docx"
-            )
+    async def test_download_no_credentials_returns_error(self, client, tmp_path):
+        # No network call is made — fails fast before touching the wire
+        result = await client.download_file(f"{BASE}/files/test.docx", tmp_path / "test.docx")
         assert result["success"] is False
+        assert "credentials" in result["error"].lower() or "password" in result["error"].lower()
 
-    async def test_download_network_error(self, client, tmp_path):
+    async def test_download_server_401_triggers_reauth(self, credentialed_client, tmp_path, monkeypatch):
+        call_count = {"n": 0}
+
+        def download_side_effect(request):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return httpx.Response(401)
+            return httpx.Response(200, content=b"docx content here")
+
+        login_called = {"n": 0}
+
+        async def mock_login():
+            login_called["n"] += 1
+            return {"success": True}
+
+        monkeypatch.setattr(credentialed_client, "login", mock_login)
+
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/files/test.docx").mock(side_effect=download_side_effect)
+            dest = tmp_path / "test.docx"
+            result = await credentialed_client.download_file(f"{BASE}/files/test.docx", dest)
+
+        assert result["success"] is True
+        assert login_called["n"] == 1   # re-auth was triggered once
+        assert call_count["n"] == 2     # initial 401 + successful retry
+
+    async def test_download_network_error(self, credentialed_client, tmp_path):
         with respx.mock(assert_all_called=False) as mock:
             mock.get(f"{BASE}/files/test.docx").mock(side_effect=Exception("Network error"))
-            result = await client.download_file(
+            result = await credentialed_client.download_file(
                 f"{BASE}/files/test.docx", tmp_path / "test.docx"
             )
         assert result["success"] is False
@@ -212,3 +246,21 @@ class TestLogin:
             result = await c.login()
         assert result["success"] is False
         assert "token" in result["error"].lower()
+
+
+class TestHTTPSEnforcement:
+    def test_http_base_url_raises(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("wiki_client._SESSION_FILE", tmp_path / "session.json")
+        monkeypatch.setenv("OPENCASELIST_BASE_URL", "http://opencaselist.com")
+        monkeypatch.setenv("OPENCASELIST_USERNAME", "")
+        monkeypatch.setenv("OPENCASELIST_PASSWORD", "")
+        with pytest.raises(ValueError, match="HTTPS"):
+            OpenCaselistClient()
+
+    def test_https_base_url_ok(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("wiki_client._SESSION_FILE", tmp_path / "session.json")
+        monkeypatch.setenv("OPENCASELIST_BASE_URL", "https://opencaselist.com")
+        monkeypatch.setenv("OPENCASELIST_USERNAME", "")
+        monkeypatch.setenv("OPENCASELIST_PASSWORD", "")
+        c = OpenCaselistClient()   # must not raise
+        assert c._base_url == "https://opencaselist.com"
