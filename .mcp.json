@@ -2,11 +2,12 @@
   "mcpServers": {
     "opencaselist": {
       "command": "uv",
-      "args": ["run", "server.py"],
+      "args": [
+        "run",
+        "server.py"
+      ],
       "env": {
-        "OPENCASELIST_BASE_URL": "https://opencaselist.com",
-        "OPENCASELIST_USERNAME": "",
-        "OPENCASELIST_PASSWORD": ""
+        "OPENCASELIST_BASE_URL": "https://opencaselist.com"
       }
     }
   }
