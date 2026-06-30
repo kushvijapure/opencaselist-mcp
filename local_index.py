@@ -1,5 +1,4 @@
-"""
-SQLite-backed local card index with full-text search (FTS5).
+"""SQLite-backed local card index with full-text search (FTS5).
 
 The index persists parsed cards to ~/.opencaselist-mcp/index.db.
 Supports exact phrase, keyword (FTS5 BM25), tag, and cite search.
