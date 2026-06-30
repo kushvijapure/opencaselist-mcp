@@ -69,6 +69,8 @@ build_card_packet(["card_abc123", "card_def456"], title="Warming Good 2NR", grou
 
 ## Environment variables
 
+Copy `.env.example` → `.env` and fill in your credentials.
+
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `OPENCASELIST_BASE_URL` | `https://opencaselist.com` | Wiki base URL |
