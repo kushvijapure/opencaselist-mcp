@@ -199,6 +199,11 @@ class OpenCaselistClient:
                         # or the client is recreated between auth and retry).
                         client.cookies.update(self._load_session())
                     r = await client.get(self._api_url, params=params)
+                    if r.status_code == 401:
+                        raise RuntimeError(
+                            "Authentication failed — your session could not be renewed. "
+                            "Check your credentials in .env."
+                        )
                 if r.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
