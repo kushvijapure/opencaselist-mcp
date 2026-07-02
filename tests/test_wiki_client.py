@@ -398,3 +398,73 @@ class TestRobotsTxt:
                 f"{BASE}/files/allowed.docx", tmp_path / "allowed.docx"
             )
         assert result["success"] is True
+
+
+class TestApiGetReauth:
+    async def test_401_triggers_login_exactly_once(self, credentialed_client, monkeypatch, tmp_path):
+        call_count = {"n": 0}
+        login_calls = {"n": 0}
+
+        def api_side_effect(request):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return httpx.Response(401)
+            return httpx.Response(200, json={"query": {"search": []}})
+
+        async def mock_login():
+            login_calls["n"] += 1
+            (tmp_path / "session.json").write_text("{}")
+            return {"success": True}
+
+        monkeypatch.setattr(credentialed_client, "login", mock_login)
+
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/api.php").mock(side_effect=api_side_effect)
+            results = await credentialed_client.search("anything")
+
+        assert login_calls["n"] == 1  # login triggered exactly once
+        assert call_count["n"] == 2   # initial 401 + successful retry
+        assert results == []           # search succeeded with empty results
+
+    async def test_401_retry_uses_refreshed_cookie(self, credentialed_client, monkeypatch, tmp_path):
+        """Fix 1: after reauth, client.cookies.update(_load_session()) must send the new token."""
+        call_count = {"n": 0}
+        second_request_cookie = {"value": ""}
+
+        def api_side_effect(request):
+            call_count["n"] += 1
+            if call_count["n"] == 2:
+                second_request_cookie["value"] = request.headers.get("cookie", "")
+            if call_count["n"] == 1:
+                return httpx.Response(401)
+            return httpx.Response(200, json={"query": {"search": []}})
+
+        async def mock_login():
+            # Simulate real login: write a new session cookie to the session file.
+            # mock_login does NOT make any httpx requests, so Set-Cookie headers are
+            # never processed — only the explicit client.cookies.update(_load_session())
+            # call in Fix 1 can get this token into the in-flight jar.
+            (tmp_path / "session.json").write_text('{"opencaselist_session": "fresh_token_xyz"}')
+            return {"success": True}
+
+        monkeypatch.setattr(credentialed_client, "login", mock_login)
+
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/api.php").mock(side_effect=api_side_effect)
+            await credentialed_client.search("anything")
+
+        assert "fresh_token_xyz" in second_request_cookie["value"]
+
+    async def test_double_401_returns_error_result(self, credentialed_client, monkeypatch, tmp_path):
+        """Both the initial request and the post-reauth retry return 401 — must not raise."""
+        async def mock_login():
+            (tmp_path / "session.json").write_text("{}")
+            return {"success": True}
+
+        monkeypatch.setattr(credentialed_client, "login", mock_login)
+
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(f"{BASE}/api.php").mock(return_value=httpx.Response(401))
+            results = await credentialed_client.search("anything")
+
+        assert results[0].page_type == "error"

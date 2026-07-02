@@ -191,7 +191,13 @@ class OpenCaselistClient:
             try:
                 r = await client.get(self._api_url, params=params)
                 if r.status_code == 401:
-                    await self.login()
+                    login_result = await self.login()
+                    if login_result.get("success"):
+                        # Explicitly refresh the in-flight cookie jar from the
+                        # newly-saved session file rather than relying on httpx's
+                        # implicit jar sharing (which breaks when login is mocked
+                        # or the client is recreated between auth and retry).
+                        client.cookies.update(self._load_session())
                     r = await client.get(self._api_url, params=params)
                 if r.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES - 1:
                     await asyncio.sleep(2 ** attempt)
