@@ -38,7 +38,7 @@ Handles both **Verbatim-styled** documents (Pocket/Hat/Block/Tag/Cite styles) an
 **Requires Python 3.12+.** Use [uv](https://docs.astral.sh/uv/getting-started/installation/) (recommended) or plain pip.
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/opencaselist-mcp
+git clone https://github.com/kushvijapure/opencaselist-mcp
 cd opencaselist-mcp
 
 # with uv (recommended)
